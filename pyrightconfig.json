@@ -1,0 +1,9 @@
+{
+  "include": ["."],
+  "extraPaths": ["d:/Bomb_IT/bombIT"],
+  "pythonVersion": "3.11",
+  "pythonPlatform": "Windows",
+  "typeCheckingMode": "basic",
+  "reportMissingImports": true,
+  "reportMissingModuleSource": false
+}

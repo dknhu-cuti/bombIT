@@ -12,7 +12,7 @@ conda activate aic_gdgoc
 ## 2. Chạy thử Bot (Xem đồ hoạ trực quan)
 Quan sát bot `my_submission` của team chiến đấu với 3 con bot baseline để xem nó "khôn" hay "ngu" ở đâu mà sửa:
 ```bash
-PYTHONPATH=. python scripts/participant/run_local_match.py --agent_paths my_submission RandomAgent SmarterRuleAgent TacticalRuleAgent --visualize True
+PYTHONPATH=. python scripts/participant/run_local_match.py --agent_paths RL TacticalRuleAgent TacticalRuleAgent TacticalRuleAgent --visualize True
 ```
 *(Chữ `True` cuối cùng sẽ mở giao diện. Chỉnh thành `False` nếu muốn chạy ngầm thật nhanh chỉ lấy kết quả)*
 
