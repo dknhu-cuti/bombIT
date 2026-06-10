@@ -8,9 +8,9 @@ When executed directly (`python -m RL.agent`):
     Runs the full PPO training loop against 3 TacticalRuleAgent opponents.
 """
 
-import os
+
 import base64
-import tempfile
+from io import BytesIO
 from collections import deque
 
 from stable_baselines3 import PPO
@@ -74,11 +74,8 @@ class Agent:
             if not BRAIN_BASE64:
                 return 0
             try:
-                fd, temp_path = tempfile.mkstemp(suffix=".zip")
-                with os.fdopen(fd, "wb") as f:
-                    f.write(base64.b64decode(BRAIN_BASE64))
-                _model = PPO.load(temp_path)
-                os.remove(temp_path)
+                model_bytes = BytesIO(base64.b64decode(BRAIN_BASE64))
+                _model = PPO.load(model_bytes)
             except Exception as e:
                 print("Error loading model:", e)
                 return 0
@@ -521,11 +518,8 @@ def act(obs: dict) -> int:
         if not BRAIN_BASE64:
             return 0  # No model embedded yet — default to STOP
         try:
-            fd, temp_path = tempfile.mkstemp(suffix=".zip")
-            with os.fdopen(fd, "wb") as f:
-                f.write(base64.b64decode(BRAIN_BASE64))
-            _model = PPO.load(temp_path)
-            os.remove(temp_path)
+            model_bytes = BytesIO(base64.b64decode(BRAIN_BASE64))
+            _model = PPO.load(model_bytes)
         except Exception as e:
             print("Error loading model:", e)
             return 0
@@ -546,16 +540,12 @@ if __name__ == "__main__":
         bot3=SmarterRuleAgent(agent_id=3)
     )
     
-    # ── ĐỘ LẠI ĐƯỜNG DẪN TUYỆT ĐỐI CHUẨN XÁC ─────────────────────────────────
-    # Dòng này lấy ra chính xác đường dẫn của thư mục chứa file agent.py hiện tại (tức là bombIT/RL)
-    CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-    
-    # Ép nó lưu checkpoint vào đúng bombIT/RL/checkpoints/
-    CHECKPOINT_DIR = os.path.join(CURRENT_DIR, "checkpoints")
-    
-    # Ép nó lưu file final vào đúng bombIT/RL/bomber_final_agent.zip
-    FINAL_MODEL_PATH = os.path.join(CURRENT_DIR, "bomber_final_agent.zip")
-    # ─────────────────────────────────────────────────────────────────────────
+    # ── HỖ TRỢ CHECKPOINT VÀ LƯUMODEL ────────────────────────────────────
+    # Sử dụng các đường dẫn chuẩn: "checkpoints" và "bomber_final_agent.zip"
+    # tương đối với thư mục hiện tại khi chạy script
+    CHECKPOINT_DIR = "checkpoints"
+    FINAL_MODEL_PATH = "bomber_final_agent.zip"
+    # ────────────────────────────────────────────────────────────────────
 
     checkpoint_callback = CheckpointCallback(
         save_freq=20000,
@@ -565,11 +555,15 @@ if __name__ == "__main__":
 
     # Resume từ checkpoint cũ nếu có
     latest_model_path = None
-    if os.path.exists(CHECKPOINT_DIR):
-        files = [f for f in os.listdir(CHECKPOINT_DIR) if f.endswith(".zip")]
-        if files:
-            files.sort(key=lambda x: int(x.split("_")[-2]))
-            latest_model_path = os.path.join(CHECKPOINT_DIR, files[-1])
+    try:
+        import pathlib
+        checkpoint_path = pathlib.Path(CHECKPOINT_DIR)
+        if checkpoint_path.exists():
+            files = sorted([f.name for f in checkpoint_path.glob("*.zip")])
+            if files:
+                latest_model_path = str(checkpoint_path / files[-1])
+    except Exception:
+        pass
 
     if latest_model_path:
         print(f"Resuming training from {latest_model_path}...")

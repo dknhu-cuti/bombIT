@@ -12,21 +12,21 @@ conda activate aic_gdgoc
 ## 2. Chạy thử Bot (Xem đồ hoạ trực quan)
 Quan sát bot `my_submission` của team chiến đấu với 3 con bot baseline để xem nó "khôn" hay "ngu" ở đâu mà sửa:
 ```bash
-PYTHONPATH=. python scripts/participant/run_local_match.py --agent_paths RL TacticalRuleAgent TacticalRuleAgent TacticalRuleAgent --visualize True
+PYTHONPATH=. python scripts/participant/run_local_match.py --agent_paths nhukei TacticalRuleAgent TacticalRuleAgent TacticalRuleAgent --visualize True
 ```
 *(Chữ `True` cuối cùng sẽ mở giao diện. Chỉnh thành `False` nếu muốn chạy ngầm thật nhanh chỉ lấy kết quả)*
 
 ## 3. Đo tốc độ phản xạ của Bot (CỰC KỲ QUAN TRỌNG)
 Luật thi bắt buộc hàm `act()` phải trả kết quả **dưới 100ms** (0.1 giây). Lệnh sau đây cho bot chạy 5 trận ẩn để đo số millisecond (ms) trung bình mỗi lượt:
 ```bash
-PYTHONPATH=. python scripts/participant/estimate_agent_time.py my_submission --opponents None None None --num_matches 5
+PYTHONPATH=. python scripts/participant/estimate_agent_time.py nhukei --opponents None None None --num_matches 5
 ```
 *(Lưu ý: Luôn đảm bảo nó nằm ở khoảng 30-50ms ở nhà là an toàn nhất)*
 
 ## 4. Ước lượng sức mạnh (Rank) của Bot
 Sau khi Code xong một thuật toán mới, hãy cho nó cày tự động 50-100 trận đấu không giao diện với các Baseline Agents để lấy ước lượng điểm TrueSkill:
 ```bash
-PYTHONPATH=. python -m scripts.participant.estimate_rankings --agent_path my_submission --num_matches 50
+PYTHONPATH=. python -m scripts.participant.estimate_rankings --agent_path nhukei --num_matches 50
 ```
 
 ## 5. Nén file để đem nộp bài

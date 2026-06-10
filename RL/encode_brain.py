@@ -1,17 +1,16 @@
 import base64
-import os
+from pathlib import Path
 
-# Resolve all paths relative to this script's own directory so the script
-# works correctly no matter which folder it is launched from.
-_HERE = os.path.dirname(os.path.abspath(__file__))
+# Sử dụng pathlib thay vì os.path để quản lý đường dẫn
+# Script chạy từ thư mục RL hiện tại
 
-# Đọc file não bộ nén dạng .zip mà m vừa train xong
-zip_path = os.path.join(_HERE, "bomber_final_agent.zip")
+# Đọc file não bộ nén dạng .zip mà vừa train xong
+zip_path = Path("bomber_final_agent.zip")
 with open(zip_path, "rb") as f:
     encoded_string = base64.b64encode(f.read()).decode('utf-8')
 
 # Tự động mở file agent.py ra và nhét chuỗi này vào biến BRAIN_BASE64
-agent_file_path = os.path.join(_HERE, "agent.py")
+agent_file_path = Path("agent.py")
 with open(agent_file_path, "r", encoding="utf-8") as f:
     lines = f.readlines()
 

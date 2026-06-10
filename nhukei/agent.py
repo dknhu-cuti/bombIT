@@ -1,5 +1,6 @@
 import random
 from collections import deque
+from typing import Optional
 
 # Monkey-patch BomberEnv (kept for compatibility)
 try:
@@ -57,6 +58,12 @@ class Agent:
         danger_soon = set(danger_at.keys())
         danger_now = {pos for pos, times in danger_at.items() if 1 in times}
 
+        bomb_score = self._bomb_score(grid,my_pos,enemies,blocked,danger_at,freedom_map,bomb_radius)
+        #if bomb_score > 0:
+            #print(
+                #"bomb score:",
+                #round(bomb_score, 1)
+            #)
         if self.escape_mode and 1 not in danger_at.get(my_pos, set()):
             self.escape_mode = False
 
@@ -86,50 +93,211 @@ class Agent:
             return 0
 
         # ── PRIORITY 2: ITEMS ─────────────────────────────────────────────
-        item_tiles = self._item_tiles(grid, my_pos, prefer_capacity=int(bombs_left) <= 1, prefer_radius=int(bomb_bonus) <= 1, radius=7)
-        if item_tiles:
-            move = self._timed_move_to_target(grid, my_pos, item_tiles, blocked, danger_at)
-            if move is not None: return move
+        
 
         # ── PRIORITY 3: TRAP ENEMY IN DEAD-END ───────────────────────────
-        trap = self._trap_enemy_action(grid, my_pos, enemies, blocked, danger_at, bomb_radius, int(bombs_left), freedom_map)
-        if trap is not None: return trap
+        
 
         # ── PRIORITY 4: BOMB IF CAN HIT ENEMY ────────────────────────────
-        if bombs_left > 0 and my_pos not in bomb_positions:
-            can_hit_enemy = self._can_bomb_hit_enemy(grid, my_pos, enemies, bomb_radius)
-            if can_hit_enemy and self._can_escape_after_placing(grid, my_pos, blocked, danger_at, bomb_radius):
-                self.escape_mode = True
-                return 5
+    
 
-        # ── PRIORITY 5: HUNT ENEMY (aggressive) ──────────────────────────
-        if should_hunt and enemies and int(bombs_left) > 0:
-            hunt = self._hunt_enemy_action(grid, my_pos, enemies, blocked, danger_at, bomb_radius, int(bombs_left))
-            if hunt is not None: return hunt
 
         # ── PRIORITY 6: BOMB BOXES ───────────────────────────────────────
-        if bombs_left > 0 and my_pos not in bomb_positions:
-            boxes_hit = self._count_boxes_in_blast(grid, my_pos, bomb_radius)
-            min_boxes = 1 if is_well_armed else 2
-            if boxes_hit >= min_boxes:
-                if self._can_escape_after_placing(grid, my_pos, blocked, danger_at, bomb_radius):
-                    self.escape_mode = True
-                    return 5
+      
 
         # ── PRIORITY 7: FARM BOXES ───────────────────────────────────────
-        box_spots = self._box_bomb_spots(grid, my_pos, blocked)
-        if box_spots:
-            move = self._timed_move_to_target(grid, my_pos, box_spots, blocked, danger_at)
-            if move is not None: return move
+        
 
         # ── PRIORITY 8: HUNT ENEMIES (fallback) ──────────────────────────
-        if enemies and int(bombs_left) > 0:
-            hunt = self._hunt_enemy_action(grid, my_pos, enemies, blocked, danger_at, bomb_radius, int(bombs_left))
-            if hunt is not None: return hunt
+    
 
         # ── PRIORITY 9: STRATEGIC WANDER ─────────────────────────────────
-        return self._strategic_wander(grid, my_pos, enemies, blocked, danger_soon, danger_now, valid_actions)
+        return self._evaluate_actions(
+    grid,
+    my_pos,
+    enemies,
+    blocked,
+    danger_at,
+    danger_soon,
+    danger_now,
+    valid_actions,
+    freedom_map,
+    int(bombs_left),
+    int(bomb_bonus),
+    bomb_radius
+)
+    def _trap_score(
+        self,
+        grid,
+        my_pos,
+        enemies,
+        blocked,
+        freedom_map,
+        bomb_radius
+    ):
+        score = 0
+        my_blast = self._blast_tiles(
+            grid,
+            my_pos[0],
+            my_pos[1],
+            bomb_radius
+        )
+        
+        for ex, ey in enemies:
 
+            enemy_pos = (ex, ey)
+            if enemy_pos in my_blast:
+                score += 80
+            # địch đang trong vùng hẹp
+            if freedom_map.get(enemy_pos, 0) <= 3:
+
+                exit_pos = self._find_dead_end_exit(
+                    grid,
+                    enemy_pos,
+                    blocked,
+                    freedom_map
+                )
+
+                if exit_pos is None:
+                    continue
+
+                # mình đang đứng ngay cửa
+                if my_pos == exit_pos:
+
+                    score += 150
+
+                # cửa nằm trong vùng nổ của bom
+                elif exit_pos in self._blast_tiles(
+                    grid,
+                    my_pos[0],
+                    my_pos[1],
+                    bomb_radius
+                ):
+
+                    score += 100
+
+        return score
+    def _item_score(self, grid, pos, bombs_left, bomb_bonus):
+
+        cell = grid[pos]
+
+        score = 0
+
+        if cell == 3:
+
+            if bomb_bonus <= 1:
+                score += 40
+            else:
+                score += 15
+
+        elif cell == 4:
+
+            if bombs_left <= 1:
+                score += 40
+            else:
+                score += 15
+
+        return score
+    def _box_score(
+    self,
+    grid,
+    pos,
+    bomb_radius
+):
+
+        boxes = self._count_boxes_in_blast(
+            grid,
+            pos,
+            bomb_radius
+        )
+
+        return boxes * 20
+    def _bomb_score(
+        self,
+        grid,
+        my_pos,
+        enemies,
+        blocked,
+        danger_at,
+        freedom_map,
+        bomb_radius
+    ):
+
+        score = 0.0
+
+        # box
+        score += (
+            self._count_boxes_in_blast(
+                grid,
+                my_pos,
+                bomb_radius
+            )
+            * 20
+        )
+
+        # enemy
+        if self._can_bomb_hit_enemy(
+            grid,
+            my_pos,
+            enemies,
+            bomb_radius
+        ):
+            score += 120
+            enemy_reach = self._predict_enemy_reach(
+                grid,
+                enemies,
+                blocked,
+                depth=4
+            )
+
+            my_blast = self._blast_tiles(
+                grid,
+                my_pos[0],
+                my_pos[1],
+                bomb_radius
+            )
+
+            for tile in my_blast:
+
+                reach_times = enemy_reach.get(tile)
+
+                if reach_times:
+
+                    earliest = min(reach_times)
+
+                    # enemy có thể chạy vào vùng nổ sau vài turn
+                    if earliest <= 4:
+                        score += (
+                            5 - earliest
+                        ) * 25
+        score += self._trap_score(
+            grid,
+            my_pos,
+            enemies,
+            blocked,
+            freedom_map,
+            bomb_radius
+        )
+        # safety
+        if not self._can_escape_after_placing(
+            grid,
+            my_pos,
+            blocked,
+            danger_at,
+            bomb_radius
+        ):
+            return -9999
+
+        # open space
+        score += (
+            freedom_map.get(
+                my_pos,
+                0
+            )
+            * 2
+        )
+
+        return score           
     # ── TIMED PATHFINDING & DEAD-END ANALYSIS ─────────────────────────────
     def _compute_region_freedom(self, grid, blocked, depth=4):
         freedom_map = {}
@@ -220,7 +388,9 @@ class Agent:
         return danger_at
 
     def _timed_escape_bfs(self, grid, start, blocked, danger_at, max_t=10):
-        q = deque([(start, None, 0)])
+        q: deque[tuple[tuple[int, int], Optional[int], int]] = deque(
+    [(start, None, 0)]
+)
         seen = {(start, 0)}
         
         while q:
@@ -255,7 +425,9 @@ class Agent:
 
     def _timed_move_to_target(self, grid, start, targets, blocked, danger_at, max_t=12):
         if not targets: return None
-        q = deque([(start, None, 0)])
+        q: deque[tuple[tuple[int, int], Optional[int], int]] = deque(
+    [(start, None, 0)]
+)
         seen = {(start, 0)}
         
         while q:
@@ -292,79 +464,484 @@ class Agent:
             
         return self._timed_escape_bfs(grid, my_pos, blocked, sim_danger, max_t=9) is not None
 
-    def _hunt_enemy_action(self, grid, my_pos, enemies, blocked, danger_at, bomb_radius, bombs_left):
-        if not enemies or bombs_left <= 0: return None
-        enemy_targets = self._predict_enemy_reach(grid, enemies, blocked)
+    def _hunt_enemy_action(self,
+                       grid,
+                       my_pos,
+                       enemies,
+                       blocked,
+                       danger_at,
+                       bomb_radius,
+                       bombs_left,
+                       freedom_map):
+
+        if not enemies or bombs_left <= 0:
+            return None
+
+        heat = self._enemy_heatmap(
+            grid,
+            enemies,
+            blocked,
+            freedom_map,
+            depth=4
+        )
+
+        if not heat:
+            return None
+
+        best_heat = max(heat.values())
+
+        hotspots = {
+            pos
+            for pos, score in heat.items()
+            if score >= best_heat * 0.7
+        }
+
         kill_spots = set()
-        for ex, ey in enemy_targets:
+
+        for ex, ey in hotspots:
+
             for dx in range(-bomb_radius, bomb_radius + 1):
+
                 nx = ex + dx
-                if self._passable(grid, nx, ey) and (nx, ey) not in blocked:
-                    if self._line_clear(grid, (nx, ey), (ex, ey)): kill_spots.add((nx, ey))
+
+                if not self._passable(grid, nx, ey):
+                    continue
+
+                if (nx, ey) in blocked:
+                    continue
+
+                if self._line_clear(grid, (nx, ey), (ex, ey)):
+                    kill_spots.add((nx, ey))
+
             for dy in range(-bomb_radius, bomb_radius + 1):
+
                 ny = ey + dy
-                if self._passable(grid, ex, ny) and (ex, ny) not in blocked:
-                    if self._line_clear(grid, (ex, ny), (ex, ey)): kill_spots.add((ex, ny))
+
+                if not self._passable(grid, ex, ny):
+                    continue
+
+                if (ex, ny) in blocked:
+                    continue
+
+                if self._line_clear(grid, (ex, ny), (ex, ey)):
+                    kill_spots.add((ex, ny))
 
         if my_pos in kill_spots:
-            if self._can_escape_after_placing(grid, my_pos, blocked, danger_at, bomb_radius):
+
+            if self._can_escape_after_placing(
+                grid,
+                my_pos,
+                blocked,
+                danger_at,
+                bomb_radius
+            ):
                 self.escape_mode = True
                 return 5
+
             kill_spots.discard(my_pos)
 
         if kill_spots:
-            move = self._timed_move_to_target(grid, my_pos, kill_spots, blocked, danger_at)
-            if move is not None: return move
 
-        move = self._timed_move_to_target(grid, my_pos, set(enemies), blocked, danger_at)
+            move = self._timed_move_to_target(
+                grid,
+                my_pos,
+                kill_spots,
+                blocked,
+                danger_at
+            )
+
+            if move is not None:
+                return move
+
+        move = self._timed_move_to_target(
+            grid,
+            my_pos,
+            hotspots,
+            blocked,
+            danger_at
+        )
+
         return move
+    def _enemy_heatmap(
+        self,
+        grid,
+        enemies,
+        blocked,
+        freedom_map,
+        depth=4):
 
-    def _predict_enemy_reach(self, grid, enemies, blocked):
-        reachable = set(enemies)
-        for ex, ey in enemies:
-            for a in [1, 2, 3, 4]:
-                dx, dy = self.MOVES[a]
-                nx, ny = ex + dx, ey + dy
-                if self._passable(grid, nx, ny) and (nx, ny) not in blocked:
-                    reachable.add((nx, ny))
-        return reachable
+        heat = {}
 
-    def _strategic_wander(self, grid, my_pos, enemies, blocked, danger_soon, danger_now, valid_actions):
-        best_action = None
-        best_score = -10**9
-        for a in valid_actions:
-            if a == 0: continue
-            npos = self._next_pos(my_pos, a)
-            if npos in danger_now: continue
-            if npos in danger_soon: continue
+        for enemy in enemies:
 
-            score = 0.0
-            open_n = self._open_neighbors(grid, npos, blocked)
-            score += open_n * 2.0
+            q = deque([(enemy, 0, 10.0)])
 
-            for da in [1, 2, 3, 4]:
-                adj = self._next_pos(npos, da)
-                if adj in danger_soon: score -= 0.5
+            seen = {}
 
-            if enemies:
-                min_dist = min(abs(npos[0] - ex) + abs(npos[1] - ey) for ex, ey in enemies)
-                if 1 <= min_dist <= 4:
-                    score += (5 - min_dist) * 1.5
-                elif min_dist > 4:
-                    score -= (min_dist - 4) * 0.5
+            while q:
 
-            if self._stuck_count >= 2:
-                score += random.uniform(0, 3)
+                pos, dist, score = q.popleft()
+
+                if score < 0.1:
+                    continue
+
+                heat[pos] = heat.get(pos, 0) + score
+
+                if dist >= depth:
+                    continue
+
+                for a in [0, 1, 2, 3, 4]:
+
+                    nx, ny = self._next_pos(pos, a)
+                    npos = (nx, ny)
+
+                    if not self._passable(grid, nx, ny):
+                        continue
+
+                    if npos in blocked:
+                        continue
+
+                    next_score = score * 0.75
+
+                    # phạt đứng yên
+                    if a == 0:
+                        next_score *= 0.6
+
+                    # thưởng vùng rộng
+                    freedom = freedom_map.get(npos, 1)
+
+                    next_score *= (
+                        1.0 +
+                        min(freedom, 10) / 10.0
+                    )
+
+                    # thưởng item
+                    cell = grid[nx, ny]
+
+                    if cell in [3, 4]:
+                        next_score *= 1.5
+
+                    old = seen.get(npos, -1)
+
+                    if old >= next_score:
+                        continue
+
+                    seen[npos] = next_score
+
+                    q.append(
+                        (
+                            npos,
+                            dist + 1,
+                            next_score
+                        )
+                    )
+
+        return heat
+    def _distance_map(
+        self,
+        grid,
+        starts,
+        blocked):
+
+        dist = {}
+
+        q = deque()
+
+        for s in starts:
+            q.append((s, 0))
+            dist[s] = 0
+
+        while q:
+
+            pos, d = q.popleft()
+
+            for a in [1,2,3,4]:
+
+                nx, ny = self._next_pos(pos, a)
+                npos = (nx, ny)
+
+                if not self._passable(grid, nx, ny):
+                    continue
+
+                if npos in blocked:
+                    continue
+
+                if npos in dist:
+                    continue
+
+                dist[npos] = d + 1
+
+                q.append(
+                    (
+                        npos,
+                        d + 1
+                    )
+                )
+
+        return dist
+    def _territory_score(
+        self,
+        grid,
+        my_pos,
+        enemies,
+        blocked):
+
+        my_dist = self._distance_map(
+            grid,
+            [my_pos],
+            blocked
+        )
+
+        enemy_dist = self._distance_map(
+            grid,
+            enemies,
+            blocked
+        )
+
+        my_area = 0
+        enemy_area = 0
+
+        all_tiles = set(my_dist) | set(enemy_dist)
+        for pos in all_tiles:
+
+            md = my_dist.get(pos, 999)
+            ed = enemy_dist.get(pos, 999)
+
+            if md < ed:
+                my_area += 1
+
+            elif ed < md:
+                enemy_area += 1
+
+        return my_area - enemy_area
+    def _predict_enemy_reach(self, grid, enemies, blocked, depth=4):
+        reach_time = {}
+
+        for enemy in enemies:
+            q = deque([(enemy, 0)])
+            seen = {(enemy, 0)}
+
+            while q:
+                pos, t = q.popleft()
+
+                if pos not in reach_time:
+                    reach_time[pos] = set()
+
+                reach_time[pos].add(t)
+
+                if t >= depth:
+                    continue
+
+                for a in [0, 1, 2, 3, 4]:
+                    nx, ny = self._next_pos(pos, a)
+                    npos = (nx, ny)
+
+                    if not self._passable(grid, nx, ny):
+                        continue
+
+                    if npos in blocked:
+                        continue
+
+                    state = (npos, t + 1)
+
+                    if state not in seen:
+                        seen.add(state)
+                        q.append((npos, t + 1))
+
+        return reach_time
+
+    
+    def _evaluate_actions(
+        self,
+        grid,
+        my_pos,
+        enemies,
+        blocked,
+        danger_at,
+        danger_soon,
+        danger_now,
+        valid_actions,
+        freedom_map,
+        bombs_left,
+        bomb_bonus,
+        bomb_radius
+    ):
+
+        heat = self._enemy_heatmap(
+            grid,
+            enemies,
+            blocked,
+            freedom_map,
+            depth=4
+        )
+
+        enemy_reach = self._predict_enemy_reach(
+            grid,
+            enemies,
+            blocked,
+            depth=4
+        )
+
+        hunt_weight = 1.0
+        territory_weight = 1.0
+        farm_weight = 1.0
+        item_weight = 1.0
+
+        enemies_alive = len(enemies)
+
+        if enemies_alive == 1:
+            hunt_weight += 0.8
+
+        if bombs_left >= 2:
+            hunt_weight += 0.3
+
+        if bomb_radius >= 3:
+            hunt_weight += 0.5
+
+        if bomb_bonus <= 1:
+            item_weight += 0.7
+
+        if bombs_left <= 1:
+            item_weight += 0.5
+
+        if enemies_alive <= 1:
+            farm_weight *= 0.5
+
+        candidate_actions = valid_actions.copy()
+
+        if bombs_left > 0 and my_pos not in blocked:
+            candidate_actions.append(5)
+
+        best_action = 0
+        best_score = -1e9
+
+        for a in candidate_actions:
+
+            # =========================
+            # BOMB
+            # =========================
+
+            if a == 5:
+
+                score = self._bomb_score(
+                    grid,
+                    my_pos,
+                    enemies,
+                    blocked,
+                    danger_at,
+                    freedom_map,
+                    bomb_radius
+                )
+
+            # =========================
+            # MOVE
+            # =========================
+
+            else:
+
+                npos = self._next_pos(my_pos, a)
+
+                score = 0.0
+
+                if a == 0:
+                    score -= 2 + self._stuck_count * 3
+
+                if npos in danger_now:
+                    continue
+
+                if npos in danger_soon:
+                    score -= 100
+
+                score += (
+                    self._open_neighbors(
+                        grid,
+                        npos,
+                        blocked
+                    ) * 5
+                )
+
+                score += (
+                    freedom_map.get(npos, 0)
+                    * 1.5
+                )
+
+                if enemies:
+
+                    min_dist = min(
+                        abs(npos[0] - ex)
+                        + abs(npos[1] - ey)
+                        for ex, ey in enemies
+                    )
+
+                    score += (
+                        max(0, 10 - min_dist)
+                        * 8
+                        * hunt_weight
+                    )
+
+                    score += (
+                        heat.get(npos, 0)
+                        * 6
+                        * hunt_weight
+                    )
+                    # ==========================
+                    # ENEMY PREDICTION
+                    # ==========================
+
+                    reach_times = enemy_reach.get(npos)
+
+                    if reach_times:
+
+                        earliest = min(reach_times)
+
+                        # tới sớm thì điểm cao
+                        score += (
+                            (5 - earliest)
+                            * 10
+                            * hunt_weight
+                        )
+                    territory = self._territory_score(
+                        grid,
+                        npos,
+                        enemies,
+                        blocked
+                    )
+
+                    score += (
+                        territory
+                        * 0.3
+                        * territory_weight
+                    )
+
+                cell = grid[npos]
+
+                if cell == 3:
+                    score += 40 if bomb_bonus <= 1 else 15
+
+                elif cell == 4:
+                    score += 40 if bombs_left <= 1 else 15
+
+                boxes = self._count_boxes_in_blast(
+                    grid,
+                    npos,
+                    bomb_radius
+                )
+
+                score += (
+                    boxes
+                    * 20
+                    * farm_weight
+                )
 
             if score > best_score:
                 best_score = score
                 best_action = a
 
-        if best_action is not None: return best_action
-        safe_moves = [a for a in valid_actions if a != 0 and self._next_pos(my_pos, a) not in danger_soon]
-        return random.choice(safe_moves) if safe_moves else 0
+        if best_action == 5:
+            self.escape_mode = True
 
-    # ── CORE HELPERS ──────────────────────────────────────────────────────
+        return best_action
+   # ── CORE HELPERS ──────────────────────────────────────────────────────
     def _next_pos(self, pos, action):
         dx, dy = self.MOVES[action]
         return pos[0] + dx, pos[1] + dy
